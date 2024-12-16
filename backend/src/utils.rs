@@ -14,5 +14,5 @@ pub fn create_userid(email: &str, user_type: UserType) -> String {
     let mut buf = [0u8; 12];
     reader.read(&mut buf);
     let suffix = BASE64_URL_SAFE.encode(&buf);
-    format!("{}:{}", user_type.to_string().to_uppercase(), suffix)
+    format!("{}_{}", user_type.to_string(), suffix)
 }

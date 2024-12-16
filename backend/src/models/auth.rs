@@ -27,23 +27,41 @@ pub struct LoginPayload {
     pub user_type: UserType,
 }
 
-pub struct LoginChallenge {}
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct LoginChallenge {
+    /// Salt for the user to hash the password
+    pub salt: String,
+    /// log_n param of scrypt.
+    pub log_n: u8,
+    /// r param of scrypt.
+    pub r: u32,
+    /// p param of scrypt.
+    pub p: u32,
+}
 
-pub struct LoginChallengeAnswer {}
-
-pub struct LoginResponse {}
-
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, ToSchema)]
 #[serde(rename_all = "camelCase")]
-pub struct Claim {
-    /// ID
-    pub id: String,
-    /// User first name
-    pub first_name: String,
-    /// User last name
-    pub last_name: String,
+pub struct LoginChallengeAnswer {
     /// User Email
     pub email: String,
+    /// User type of the user.
+    pub user_type: UserType,
+    /// User hashed password.
+    pub password_hash: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub struct Claim<'a> {
+    /// ID
+    pub id: &'a str,
+    /// User first name
+    pub first_name: &'a str,
+    /// User last name
+    pub last_name: &'a str,
+    /// User Email
+    pub email: &'a str,
     /// User type of the user.
     pub user_type: UserType,
     /// Expire Time

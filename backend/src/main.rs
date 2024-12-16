@@ -12,16 +12,19 @@ use std::{
 
 use axum::{
     body::Body,
-    http::{Request, StatusCode},
-    response::Json,
+    extract::State,
+    http::{header, Request, StatusCode},
+    response::{IntoResponse, Json, Response},
     routing::{get, post},
-    Router,
 };
 use lambda_http::{run, tracing, Error};
+use models::GeneralResult;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use state::AppState;
 use tower_http::trace::TraceLayer;
+use utoipa::openapi::OpenApi;
+use utoipa_axum::{router::OpenApiRouter, routes};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Default)]
 struct Resp {
@@ -51,13 +54,21 @@ async fn health_check() -> (StatusCode, String) {
     }
 }
 
+async fn serve_openapi(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    (
+        StatusCode::OK,
+        (
+            [(header::CONTENT_TYPE, "application/yaml")],
+            state.oapi.clone(),
+        ),
+    )
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     tracing::init_default_subscriber();
 
     tracing::info!("API Handler Start!!!");
-
-    let state = AppState::new().await?;
 
     let trace_layer =
         TraceLayer::new_for_http().on_request(|req: &Request<Body>, _: &tracing::Span| {
@@ -65,13 +76,25 @@ async fn main() -> Result<(), Error> {
             tracing::info!("Got request with path: {}", path);
         });
 
-    let app = Router::new()
+    let (router, oapi) = OpenApiRouter::new()
         .route("/v1/", get(root))
         .route("/v1/utc", get(get_utc))
         .route("/v1/health", get(health_check))
-        .route("/v1/register", post(routes::auth::register))
+        .merge(OpenApiRouter::new().routes(routes!(routes::auth::register)))
+        .merge(OpenApiRouter::new().routes(routes!(routes::auth::login_challenge)))
+        .merge(OpenApiRouter::new().routes(routes!(routes::auth::login)))
+        // .route("/v1/register", post(routes::auth::register))
+        // .route("/v1/login/challenge", post(routes::auth::login_challenge))
+        // .route("/v1/login", post(routes::auth::login_challenge_response))
         .layer(trace_layer)
+        .split_for_parts();
+
+    let yaml = oapi.to_yaml()?;
+    let state = AppState::new(yaml).await?;
+
+    let service = router
+        .route("/v1/openapi", get(serve_openapi))
         .with_state(Arc::new(state));
 
-    run(app).await
+    run(service).await
 }
