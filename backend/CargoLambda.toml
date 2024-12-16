@@ -1,0 +1,15 @@
+[build]
+output_format = "binary"
+x86_64 = true
+lambda_dir = "dist"
+
+[deploy]
+memory = 128
+timeout = 10
+env_file = ".env"
+output_format = "text"
+runtime = "provided.al2023"
+
+[watch]
+invoke_address = "0.0.0.0"
+invoke_port = 8080
