@@ -26,8 +26,8 @@ impl Default for ItemState {
 pub struct Item {
     /// User id, hash key
     seller_id: String,
-    /// Ulid inner repr, range key
-    id: String,
+    /// Ulid, range key
+    id: Ulid,
     /// Create time, in unix timestamp
     create_at: u64,
     /// Item Name
@@ -60,7 +60,7 @@ impl Item {
     pub fn new_from_request(seller_id: String, req: PutItemRequest) -> Self {
         Self {
             seller_id,
-            id: Ulid::new().to_string(),
+            id: Ulid::new(),
             create_at: chrono::Local::now().timestamp_millis() as u64,
             name: req.name,
             description: req.description,
@@ -77,15 +77,15 @@ impl Item {
 pub struct ItemRef {
     // User id, hash key
     seller_id: String,
-    // Ulid inner repr, range key
-    id: String,
+    // Ulid, range key
+    id: Ulid,
 }
 
 impl From<&Item> for ItemRef {
     fn from(value: &Item) -> Self {
         Self {
             seller_id: value.seller_id.clone(),
-            id: value.id.clone(),
+            id: value.id,
         }
     }
 }

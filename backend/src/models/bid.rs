@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use ulid::Ulid;
 use utoipa::ToSchema;
 
 use super::item::ItemRef;
@@ -8,8 +9,8 @@ use super::item::ItemRef;
 pub struct Bid {
     /// User id, hash key
     buyer_id: String,
-    /// Ulid inner repr, range key
-    id: String,
+    /// Ulid, range key
+    id: Ulid,
     /// Create time, in unix timestamp
     create_at: u64,
     /// Target item's hash & range key.
@@ -23,6 +24,6 @@ pub struct Bid {
 pub struct BidRef {
     /// User id, hash key
     buyer_id: String,
-    /// Ulid inner repr, range key
-    id: String,
+    /// Ulid, range key
+    id: Ulid,
 }

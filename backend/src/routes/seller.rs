@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use aws_sdk_dynamodb::{types::AttributeValue, Client};
 use axum::{
-    extract::{Json, State},
+    extract::{Json, Path, State},
     http::StatusCode,
     Extension,
 };
@@ -20,12 +20,10 @@ use crate::{
 };
 
 pub fn router() -> OpenApiRouter<Arc<AppState>> {
-    OpenApiRouter::new().routes(routes!(get_seller_items, add_item))
+    OpenApiRouter::new()
+        .routes(routes!(seller_get_items, add_item))
+        .routes(routes!(seller_get_item_by_id))
 }
-
-// async fn get_seller(client: &Client, id: &str) -> GeneralResult<Seller> {
-//     todo!()
-// }
 
 fn check_user(claim: Claim) -> GeneralResult<()> {
     if claim.user_type != UserType::Seller {
@@ -49,7 +47,7 @@ fn check_user(claim: Claim) -> GeneralResult<()> {
         (status = INTERNAL_SERVER_ERROR, description = "Handler errors", body = ErrorResponse),
     ),
 )]
-async fn get_seller_items(
+async fn seller_get_items(
     Extension(claim): Extension<ClaimOwned>,
     State(state): State<Arc<AppState>>,
 ) -> GeneralResult<Json<Vec<Item>>> {
@@ -121,4 +119,56 @@ async fn add_item(
         })?;
 
     Ok(Json(iref))
+}
+
+/// Get seller's item with itemId.
+#[utoipa::path(
+    get,
+    path = "/v1/seller/item/{itemId}",
+    tag = "Seller",
+    params(
+        ("itemId" = String, Path, description = "Item ID to get", format = Ulid),
+    ),
+    responses(
+        (status = OK, description = "Register Success", body = Item),
+        (status = FORBIDDEN, description = "Not a seller", body = ErrorResponse),
+        (status = NOT_FOUND, description = "Item not found", body = ErrorResponse),
+        (status = INTERNAL_SERVER_ERROR, description = "Handler errors", body = ErrorResponse),
+    ),
+)]
+async fn seller_get_item_by_id(
+    Extension(claim): Extension<ClaimOwned>,
+    State(state): State<Arc<AppState>>,
+    Path(item_id): Path<String>,
+) -> GeneralResult<Json<Item>> {
+    check_user(claim.as_claim())?;
+
+    let client = Client::new(&state.aws_config);
+
+    let get_item_resp = client
+        .get_item()
+        .table_name(ITEM_TABLE)
+        .key("sellerId", AttributeValue::S(claim.id.clone()))
+        .key("id", AttributeValue::S(item_id))
+        .send()
+        .await
+        .map_err(|e| ErrorResponse {
+            status: StatusCode::INTERNAL_SERVER_ERROR.as_u16(),
+            inner_status: e.raw_response().map(|r| r.status().as_u16()),
+            message: format!("Failed to query seller items: {}", e),
+        })?;
+
+    let dynamo_item = get_item_resp.item.ok_or(ErrorResponse {
+        status: StatusCode::NOT_FOUND.as_u16(),
+        inner_status: None,
+        message: "Item not found.".to_string(),
+    })?;
+
+    let item = serde_dynamo::from_item(dynamo_item).map_err(|e| ErrorResponse {
+        status: StatusCode::INTERNAL_SERVER_ERROR.as_u16(),
+        inner_status: None,
+        message: format!("Failed to deserialize query result for seller items: {}", e),
+    })?;
+
+    Ok(Json(item))
 }

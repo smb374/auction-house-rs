@@ -3,6 +3,7 @@ use std::fmt;
 use axum::http::StatusCode;
 use chrono::TimeDelta;
 use serde::{Deserialize, Serialize};
+use ulid::Ulid;
 use utoipa::ToSchema;
 
 use super::{auth::Claim, ErrorResponse, GeneralResult};
@@ -144,7 +145,7 @@ pub struct Seller {
     /// User fund
     pub fund: usize,
     /// List of created auctions (range keys).
-    pub auctions: Vec<u128>,
+    pub auctions: Vec<Ulid>,
     /// Password in bcrypt.
     pub password: String,
 }
@@ -167,9 +168,9 @@ pub struct Buyer {
     /// User fund
     pub fund: usize,
     /// List of created bids (range keys).
-    pub bids: Vec<u128>,
+    pub bids: Vec<Ulid>,
     /// List of purchases (range keys).
-    pub purchases: Vec<u128>,
+    pub purchases: Vec<Ulid>,
     /// Password in bcrypt.
     pub password: String,
 }
