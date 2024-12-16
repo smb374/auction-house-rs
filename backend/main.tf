@@ -296,7 +296,7 @@ resource "aws_dynamodb_table" "item_table" {
 
   attribute {
     name = "id"
-    type = "N"
+    type = "S"
   }
 }
 
@@ -313,7 +313,7 @@ resource "aws_dynamodb_table" "bid_table" {
 
   attribute {
     name = "id"
-    type = "N"
+    type = "S"
   }
 }
 
@@ -330,7 +330,7 @@ resource "aws_dynamodb_table" "purchase_table" {
 
   attribute {
     name = "id"
-    type = "N"
+    type = "S"
   }
 }
 
@@ -347,7 +347,7 @@ resource "aws_dynamodb_table" "unfreeze_request_table" {
 
   attribute {
     name = "id"
-    type = "N"
+    type = "S"
   }
 }
 

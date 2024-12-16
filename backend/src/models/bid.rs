@@ -9,7 +9,7 @@ pub struct Bid {
     /// User id, hash key
     buyer_id: String,
     /// Ulid inner repr, range key
-    id: u128,
+    id: String,
     /// Create time, in unix timestamp
     create_at: u64,
     /// Target item's hash & range key.
@@ -24,5 +24,5 @@ pub struct BidRef {
     /// User id, hash key
     buyer_id: String,
     /// Ulid inner repr, range key
-    id: u128,
+    id: String,
 }

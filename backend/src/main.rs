@@ -90,13 +90,14 @@ async fn main() -> Result<(), Error> {
         .merge(routes::auth::router())
         .with_state(state.clone());
 
-    let auth_router =
-        OpenApiRouter::new()
-            .route("/v1/ping", get(ping))
-            .layer(middleware::from_fn_with_state(
-                state,
-                middlewares::auth::auth_middleware,
-            ));
+    let auth_router = OpenApiRouter::new()
+        .route("/v1/ping", get(ping))
+        .merge(routes::seller::router())
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            middlewares::auth::auth_middleware,
+        ))
+        .with_state(state.clone());
 
     let (router, oapi) = OpenApiRouter::new()
         .merge(plain_router)

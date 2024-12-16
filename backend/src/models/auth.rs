@@ -1,3 +1,5 @@
+use std::borrow::Borrow;
+
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -91,4 +93,19 @@ pub struct ClaimOwned {
     pub iat: u64,
     /// Audience
     pub aud: String,
+}
+
+impl ClaimOwned {
+    pub fn as_claim<'a>(&'a self) -> Claim<'a> {
+        Claim {
+            id: &self.id,
+            first_name: &self.first_name,
+            last_name: &self.last_name,
+            email: &self.email,
+            user_type: self.user_type,
+            exp: self.exp,
+            iat: self.iat,
+            aud: &self.aud,
+        }
+    }
 }

@@ -84,6 +84,7 @@ async fn get_user_full(
     }
 }
 
+/// Register user account.
 #[utoipa::path(
     post,
     path = "/v1/register",
@@ -184,6 +185,7 @@ async fn register(
     Ok(Json(user.to_user_info(token)))
 }
 
+/// Initiate login challenge
 #[utoipa::path(
     post,
     path = "/v1/login/challenge",
@@ -234,6 +236,7 @@ async fn login_challenge(
     }))
 }
 
+/// Login with completed challenge
 #[utoipa::path(
     post,
     path = "/v1/login",
