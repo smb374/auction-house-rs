@@ -68,4 +68,27 @@ pub struct Claim<'a> {
     pub exp: u64,
     /// Issue Time
     pub iat: u64,
+    /// Audience
+    pub aud: &'a str,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub struct ClaimOwned {
+    /// ID
+    pub id: String,
+    /// User first name
+    pub first_name: String,
+    /// User last name
+    pub last_name: String,
+    /// User Email
+    pub email: String,
+    /// User type of the user.
+    pub user_type: UserType,
+    /// Expire Time
+    pub exp: u64,
+    /// Issue Time
+    pub iat: u64,
+    /// Audience
+    pub aud: String,
 }

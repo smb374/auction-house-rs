@@ -1,6 +1,7 @@
 use std::fmt;
 
 use axum::http::StatusCode;
+use chrono::TimeDelta;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -29,7 +30,7 @@ pub enum UserWrapper {
 }
 
 impl UserWrapper {
-    pub fn create_claim(&self, exp: std::time::Duration) -> Claim<'_> {
+    pub fn create_claim(&self, exp: TimeDelta) -> Claim<'_> {
         let now = chrono::Local::now();
         match self {
             UserWrapper::Buyer(user) => Claim {
@@ -40,6 +41,7 @@ impl UserWrapper {
                 user_type: UserType::Buyer,
                 iat: now.timestamp_millis() as u64,
                 exp: (now + exp).timestamp_millis() as u64,
+                aud: "auction-house-rs",
             },
             UserWrapper::Seller(user) => Claim {
                 id: &user.id,
@@ -49,6 +51,7 @@ impl UserWrapper {
                 user_type: UserType::Seller,
                 iat: now.timestamp_millis() as u64,
                 exp: (now + exp).timestamp_millis() as u64,
+                aud: "auction-house-rs",
             },
         }
     }

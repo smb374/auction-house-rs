@@ -5,10 +5,12 @@ use axum::{
     extract::{Json, State},
     http::StatusCode,
 };
+use chrono::{Duration, TimeDelta};
 use scrypt::{
     password_hash::{rand_core::OsRng, PasswordHash, PasswordHasher, SaltString},
     Scrypt,
 };
+use utoipa_axum::{router::OpenApiRouter, routes};
 
 use crate::{
     constants::{BUYER_TABLE, SELLER_TABLE},
@@ -21,7 +23,14 @@ use crate::{
     utils::create_userid,
 };
 
-const TOKEN_EXPIRATION_DURATION: std::time::Duration = std::time::Duration::from_secs(60 * 60);
+const TOKEN_EXPIRATION_DURATION: TimeDelta = Duration::hours(5);
+
+pub fn router() -> OpenApiRouter<Arc<AppState>> {
+    OpenApiRouter::new()
+        .routes(routes!(register))
+        .routes(routes!(login_challenge))
+        .routes(routes!(login))
+}
 
 async fn get_user(
     client: &Client,
@@ -78,6 +87,7 @@ async fn get_user_full(
 #[utoipa::path(
     post,
     path = "/v1/register",
+    tag = "Auth",
     request_body(description = "Register Info", content = RegisterPayload),
     responses(
         (status = OK, description = "Register Success", body = UserInfo),
@@ -85,7 +95,7 @@ async fn get_user_full(
         (status = INTERNAL_SERVER_ERROR, description = "Handler errors", body = ErrorResponse),
     ),
 )]
-pub async fn register(
+async fn register(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<RegisterPayload>,
 ) -> GeneralResult<Json<UserInfo>> {
@@ -177,6 +187,7 @@ pub async fn register(
 #[utoipa::path(
     post,
     path = "/v1/login/challenge",
+    tag = "Auth",
     request_body(description = "Register Info", content = LoginPayload),
     responses(
         (status = OK, description = "Challenge Sent", body = LoginChallenge),
@@ -184,7 +195,7 @@ pub async fn register(
         (status = INTERNAL_SERVER_ERROR, description = "Handler errors", body = ErrorResponse),
     ),
 )]
-pub async fn login_challenge(
+async fn login_challenge(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<LoginPayload>,
 ) -> GeneralResult<Json<LoginChallenge>> {
@@ -226,6 +237,7 @@ pub async fn login_challenge(
 #[utoipa::path(
     post,
     path = "/v1/login",
+    tag = "Auth",
     request_body(description = "Register Info", content = LoginPayload),
     responses(
         (status = OK, description = "Challenge Sent", body = LoginChallenge),
@@ -234,7 +246,7 @@ pub async fn login_challenge(
         (status = INTERNAL_SERVER_ERROR, description = "Handler errors", body = ErrorResponse),
     ),
 )]
-pub async fn login(
+async fn login(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<LoginChallengeAnswer>,
 ) -> GeneralResult<Json<UserInfo>> {

@@ -11,20 +11,20 @@ use std::{
 };
 
 use axum::{
-    body::Body,
-    extract::State,
-    http::{header, Request, StatusCode},
-    response::{IntoResponse, Json, Response},
-    routing::{get, post},
+    http::{header, StatusCode},
+    middleware,
+    response::{Json, Response},
+    routing::get,
+    Extension,
 };
 use lambda_http::{run, tracing, Error};
-use models::GeneralResult;
+use models::{ErrorResponse, GeneralResult};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use state::AppState;
-use tower_http::trace::TraceLayer;
+use tower_http::compression::CompressionLayer;
 use utoipa::openapi::OpenApi;
-use utoipa_axum::{router::OpenApiRouter, routes};
+use utoipa_axum::router::OpenApiRouter;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Default)]
 struct Resp {
@@ -54,14 +54,25 @@ async fn health_check() -> (StatusCode, String) {
     }
 }
 
-async fn serve_openapi(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    (
-        StatusCode::OK,
-        (
-            [(header::CONTENT_TYPE, "application/yaml")],
-            state.oapi.clone(),
-        ),
-    )
+async fn serve_openapi(Extension(oapi): Extension<OpenApi>) -> GeneralResult<Response<String>> {
+    let yaml = oapi.to_yaml().map_err(|e| ErrorResponse {
+        status: StatusCode::INTERNAL_SERVER_ERROR.as_u16(),
+        inner_status: None,
+        message: format!("Failed to serialize OpenAPI spec: {}", e),
+    })?;
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, "application/yaml")
+        .body(yaml)
+        .map_err(|e| ErrorResponse {
+            status: StatusCode::INTERNAL_SERVER_ERROR.as_u16(),
+            inner_status: None,
+            message: format!("Failed to construct response: {}", e),
+        })
+}
+
+async fn ping() -> String {
+    "PONG".to_string()
 }
 
 #[tokio::main]
@@ -70,31 +81,33 @@ async fn main() -> Result<(), Error> {
 
     tracing::info!("API Handler Start!!!");
 
-    let trace_layer =
-        TraceLayer::new_for_http().on_request(|req: &Request<Body>, _: &tracing::Span| {
-            let path = req.uri().path();
-            tracing::info!("Got request with path: {}", path);
-        });
+    let state = Arc::new(AppState::new().await?);
 
-    let (router, oapi) = OpenApiRouter::new()
+    let plain_router = OpenApiRouter::new()
         .route("/v1/", get(root))
         .route("/v1/utc", get(get_utc))
         .route("/v1/health", get(health_check))
-        .merge(OpenApiRouter::new().routes(routes!(routes::auth::register)))
-        .merge(OpenApiRouter::new().routes(routes!(routes::auth::login_challenge)))
-        .merge(OpenApiRouter::new().routes(routes!(routes::auth::login)))
-        // .route("/v1/register", post(routes::auth::register))
-        // .route("/v1/login/challenge", post(routes::auth::login_challenge))
-        // .route("/v1/login", post(routes::auth::login_challenge_response))
-        .layer(trace_layer)
-        .split_for_parts();
+        .merge(routes::auth::router())
+        .with_state(state.clone());
 
-    let yaml = oapi.to_yaml()?;
-    let state = AppState::new(yaml).await?;
+    let auth_router =
+        OpenApiRouter::new()
+            .route("/v1/ping", get(ping))
+            .layer(middleware::from_fn_with_state(
+                state,
+                middlewares::auth::auth_middleware,
+            ));
+
+    let (router, oapi) = OpenApiRouter::new()
+        .merge(plain_router)
+        .merge(auth_router)
+        .layer(CompressionLayer::new().zstd(true))
+        .layer(middleware::from_fn(middlewares::trace_client))
+        .split_for_parts();
 
     let service = router
         .route("/v1/openapi", get(serve_openapi))
-        .with_state(Arc::new(state));
+        .layer(Extension(oapi));
 
     run(service).await
 }
