@@ -1,5 +1,6 @@
 use core::fmt;
 
+use aws_sdk_dynamodb::types::AttributeValue;
 use serde::{Deserialize, Serialize};
 use ulid::Ulid;
 use utoipa::ToSchema;
@@ -15,6 +16,12 @@ pub enum ItemState {
     Completed,
     Failed,
     InActive,
+}
+
+impl Into<AttributeValue> for ItemState {
+    fn into(self) -> AttributeValue {
+        AttributeValue::S(self.to_string())
+    }
 }
 
 impl Default for ItemState {

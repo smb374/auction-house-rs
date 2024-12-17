@@ -13,6 +13,7 @@ use super::{auth::Claim, ErrorResponse, GeneralResult};
 pub enum UserType {
     Seller,
     Buyer,
+    Admin,
 }
 
 impl fmt::Display for UserType {
@@ -20,6 +21,7 @@ impl fmt::Display for UserType {
         match *self {
             UserType::Buyer => write!(f, "buyer"),
             UserType::Seller => write!(f, "seller"),
+            UserType::Admin => write!(f, "admin"),
         }
     }
 }

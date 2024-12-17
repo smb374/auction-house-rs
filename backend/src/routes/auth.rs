@@ -43,10 +43,11 @@ async fn get_user(
         .key("id", AttributeValue::S(id.to_string()))
         .send()
         .await
-        .map_err(|e| ErrorResponse {
-            status: StatusCode::INTERNAL_SERVER_ERROR.as_u16(),
-            inner_status: e.raw_response().map(|r| r.status().as_u16()),
-            message: format!("Error getting user: {}", e),
+        .map_err(|e| {
+            ErrorResponse::with_inner_status(
+                e.raw_response().map(|r| r.status().as_u16()),
+                e.to_string(),
+            )
         })?;
 
     Ok(resp.item)
@@ -59,28 +60,19 @@ async fn get_user_full(
     user_type: UserType,
 ) -> GeneralResult<UserWrapper> {
     let get_user_resp = get_user(&client, &id, table).await?;
-    let user_item = get_user_resp.ok_or(ErrorResponse {
-        status: StatusCode::NOT_FOUND.as_u16(),
-        inner_status: None,
-        message: format!("User with id {} doesn't exist.", &id),
-    })?;
+    let user_item = get_user_resp.ok_or(ErrorResponse::not_found())?;
     match user_type {
         UserType::Buyer => {
-            let buyer: Buyer = serde_dynamo::from_item(user_item).map_err(|e| ErrorResponse {
-                status: StatusCode::INTERNAL_SERVER_ERROR.as_u16(),
-                inner_status: None,
-                message: format!("Failed to parse buyer: {}", e),
-            })?;
+            let buyer: Buyer = serde_dynamo::from_item(user_item)
+                .map_err(|e| ErrorResponse::generic("Failed to deserialize user", e))?;
             Ok(UserWrapper::from(buyer))
         }
         UserType::Seller => {
-            let seller: Seller = serde_dynamo::from_item(user_item).map_err(|e| ErrorResponse {
-                status: StatusCode::INTERNAL_SERVER_ERROR.as_u16(),
-                inner_status: None,
-                message: format!("Failed to parse seller: {}", e),
-            })?;
+            let seller: Seller = serde_dynamo::from_item(user_item)
+                .map_err(|e| ErrorResponse::generic("Failed to deserialize user", e))?;
             Ok(UserWrapper::from(seller))
         }
+        UserType::Admin => unreachable!(),
     }
 }
 
@@ -105,27 +97,23 @@ async fn register(
     let table = match payload.user_type {
         UserType::Buyer => BUYER_TABLE,
         UserType::Seller => SELLER_TABLE,
+        UserType::Admin => unreachable!(),
     };
 
     // 1. Check user existance.
     let get_user_resp = get_user(&client, &id, table).await?;
     if get_user_resp.is_some() {
-        return Err(ErrorResponse {
-            status: StatusCode::BAD_REQUEST.as_u16(),
-            inner_status: None,
-            message: "User already exists!".to_string(),
-        });
+        return Err(ErrorResponse::new(
+            StatusCode::BAD_REQUEST,
+            "User already exists.",
+        ));
     }
 
     // 2. Create password hash.
     let salt = SaltString::generate(&mut OsRng);
     let phash = Scrypt
         .hash_password(payload.password.as_bytes(), &salt)
-        .map_err(|e| ErrorResponse {
-            status: StatusCode::INTERNAL_SERVER_ERROR.as_u16(),
-            inner_status: None,
-            message: format!("Failed to hash password: {}", e),
-        })?
+        .map_err(|e| ErrorResponse::generic("Failed to hash password", e))?
         .to_string();
 
     // 3. Create user.
@@ -155,6 +143,7 @@ async fn register(
             auctions: Vec::new(),
             password: phash,
         }),
+        UserType::Admin => unreachable!(),
     };
     let user_item = user.clone().to_item()?;
 
@@ -165,10 +154,11 @@ async fn register(
         .set_item(Some(user_item))
         .send()
         .await
-        .map_err(|e| ErrorResponse {
-            status: StatusCode::INTERNAL_SERVER_ERROR.as_u16(),
-            inner_status: e.raw_response().map(|r| r.status().as_u16()),
-            message: format!("Error putting user: {}", e),
+        .map_err(|e| {
+            ErrorResponse::with_inner_status(
+                e.raw_response().map(|r| r.status().as_u16()),
+                e.to_string(),
+            )
         })?;
 
     // 5. Sign JWT token.
@@ -176,11 +166,8 @@ async fn register(
     let header = &state.jwt.2;
     let claim = user.create_claim(TOKEN_EXPIRATION_DURATION);
 
-    let token = jsonwebtoken::encode(header, &claim, enc_key).map_err(|e| ErrorResponse {
-        status: StatusCode::INTERNAL_SERVER_ERROR.as_u16(),
-        inner_status: None,
-        message: format!("Failed to sign JWT token: {}", e),
-    })?;
+    let token = jsonwebtoken::encode(header, &claim, enc_key)
+        .map_err(|e| ErrorResponse::generic("Failed to sign JWT token", e))?;
 
     Ok(Json(user.to_user_info(token)))
 }
@@ -206,27 +193,22 @@ async fn login_challenge(
     let table = match payload.user_type {
         UserType::Buyer => BUYER_TABLE,
         UserType::Seller => SELLER_TABLE,
+        UserType::Admin => unreachable!(),
     };
 
     // 1. Check if user exists
     let user = get_user_full(&client, &id, table, payload.user_type).await?;
 
     // 2. Get password hash
-    let phash = PasswordHash::new(user.password()).map_err(|e| ErrorResponse {
-        status: StatusCode::INTERNAL_SERVER_ERROR.as_u16(),
-        inner_status: None,
-        message: format!("Failed to parse user's password hash: {}", e),
-    })?;
+    let phash = PasswordHash::new(user.password())
+        .map_err(|e| ErrorResponse::generic("Failed to parse user's password hash", e))?;
 
     // 3. Return salt as a challenge.
     let salt = phash
         .salt
         .expect("Scrypt password hash should have a salt.");
-    let params = scrypt::Params::try_from(&phash).map_err(|e| ErrorResponse {
-        status: StatusCode::INTERNAL_SERVER_ERROR.as_u16(),
-        inner_status: None,
-        message: format!("Failed to parse password hash's parameter: {}", e),
-    })?;
+    let params = scrypt::Params::try_from(&phash)
+        .map_err(|e| ErrorResponse::generic("Failed to parse parameter", e))?;
 
     Ok(Json(LoginChallenge {
         salt: salt.to_string(),
@@ -258,30 +240,24 @@ async fn login(
     let table = match payload.user_type {
         UserType::Buyer => BUYER_TABLE,
         UserType::Seller => SELLER_TABLE,
+        UserType::Admin => unreachable!(),
     };
 
     // 1. Check if user exists
     let user = get_user_full(&client, &id, table, payload.user_type).await?;
 
     // 2. verify hash
-    let phash = PasswordHash::new(user.password()).map_err(|e| ErrorResponse {
-        status: StatusCode::INTERNAL_SERVER_ERROR.as_u16(),
-        inner_status: None,
-        message: format!("Failed to parse user's password hash: {}", e),
-    })?;
+    let phash = PasswordHash::new(user.password())
+        .map_err(|e| ErrorResponse::generic("Failed to parse user's password hash", e))?;
 
-    let supplied = PasswordHash::new(&payload.password_hash).map_err(|e| ErrorResponse {
-        status: StatusCode::INTERNAL_SERVER_ERROR.as_u16(),
-        inner_status: None,
-        message: format!("Failed to parse supplied password hash: {}", e),
-    })?;
+    let supplied = PasswordHash::new(&payload.password_hash)
+        .map_err(|e| ErrorResponse::generic("Failed to parse supplied password hash", e))?;
 
     if phash.hash != supplied.hash || (phash.hash.is_none() && supplied.hash.is_none()) {
-        return Err(ErrorResponse {
-            status: StatusCode::BAD_REQUEST.as_u16(),
-            inner_status: None,
-            message: "Wrong password or malformed password hash".to_string(),
-        });
+        return Err(ErrorResponse::new(
+            StatusCode::BAD_REQUEST,
+            "Wrong password",
+        ));
     }
 
     // 4. Sign JWT token
@@ -289,11 +265,8 @@ async fn login(
     let header = &state.jwt.2;
     let claim = user.create_claim(TOKEN_EXPIRATION_DURATION);
 
-    let token = jsonwebtoken::encode(header, &claim, enc_key).map_err(|e| ErrorResponse {
-        status: StatusCode::INTERNAL_SERVER_ERROR.as_u16(),
-        inner_status: None,
-        message: format!("Failed to sign JWT token: {}", e),
-    })?;
+    let token = jsonwebtoken::encode(header, &claim, enc_key)
+        .map_err(|e| ErrorResponse::generic("Failed to sign JWT token", e))?;
 
     Ok(Json(user.to_user_info(token)))
 }
