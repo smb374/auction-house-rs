@@ -1,3 +1,5 @@
+use core::fmt;
+
 use serde::{Deserialize, Serialize};
 use ulid::Ulid;
 use utoipa::ToSchema;
@@ -18,6 +20,19 @@ pub enum ItemState {
 impl Default for ItemState {
     fn default() -> Self {
         Self::InActive
+    }
+}
+
+impl fmt::Display for ItemState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let out = match *self {
+            ItemState::Active => "active",
+            ItemState::Archived => "archived",
+            ItemState::Completed => "completed",
+            ItemState::Failed => "failed",
+            ItemState::InActive => "inactive",
+        };
+        write!(f, "{}", out)
     }
 }
 
@@ -57,7 +72,7 @@ pub struct Item {
 }
 
 impl Item {
-    pub fn new_from_request(seller_id: String, req: PutItemRequest) -> Self {
+    pub fn new_from_request(seller_id: String, req: AddItemRequest) -> Self {
         Self {
             seller_id,
             id: Ulid::new(),
@@ -92,7 +107,7 @@ impl From<&Item> for ItemRef {
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, ToSchema)]
 #[serde(rename_all = "camelCase")]
-pub struct PutItemRequest {
+pub struct AddItemRequest {
     /// Item Name
     name: String,
     /// Item Description
@@ -103,4 +118,19 @@ pub struct PutItemRequest {
     auction_length: u64,
     /// List of S3 keys
     images: Vec<String>,
+}
+
+#[derive(Debug, Default, Serialize, Deserialize, Clone, PartialEq, Eq, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateItemRequest {
+    /// Item Name
+    pub name: Option<String>,
+    /// Item Description
+    pub description: Option<String>,
+    /// Initial Price, >1,
+    pub init_price: Option<u64>,
+    /// Length of Auction, in unix timestamp diff.
+    pub auction_length: Option<u64>,
+    /// List of S3 keys
+    pub images: Option<Vec<String>>,
 }
