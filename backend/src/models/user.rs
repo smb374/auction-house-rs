@@ -1,12 +1,12 @@
 use std::fmt;
 
-use axum::http::StatusCode;
 use chrono::TimeDelta;
 use serde::{Deserialize, Serialize};
-use ulid::Ulid;
 use utoipa::ToSchema;
 
-use super::{auth::Claim, ErrorResponse, GeneralResult};
+use crate::errors::HandlerError;
+
+use super::auth::Claim;
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, ToSchema)]
 #[serde(rename_all = "lowercase")]
@@ -66,16 +66,12 @@ impl UserWrapper {
         }
     }
 
-    pub fn to_item<I: From<serde_dynamo::Item>>(self) -> GeneralResult<I> {
-        match self {
-            UserWrapper::Buyer(user) => serde_dynamo::to_item(user),
-            UserWrapper::Seller(user) => serde_dynamo::to_item(user),
-        }
-        .map_err(|e| ErrorResponse {
-            status: StatusCode::INTERNAL_SERVER_ERROR.as_u16(),
-            inner_status: None,
-            message: format!("Failed to serialize user: {}", e),
-        })
+    pub fn to_item<I: From<serde_dynamo::Item>>(self) -> Result<I, HandlerError> {
+        let res = match self {
+            UserWrapper::Buyer(user) => serde_dynamo::to_item(user)?,
+            UserWrapper::Seller(user) => serde_dynamo::to_item(user)?,
+        };
+        Ok(res)
     }
 
     pub fn to_user_info(self, token: String) -> UserInfo {
@@ -145,10 +141,8 @@ pub struct Seller {
     /// User Email
     pub email: String,
     /// User fund
-    pub fund: usize,
-    /// List of created auctions (range keys).
-    pub auctions: Vec<Ulid>,
-    /// Password in bcrypt.
+    pub fund: u64,
+    /// Password in scrypt.
     pub password: String,
 }
 
@@ -168,11 +162,9 @@ pub struct Buyer {
     /// User Email
     pub email: String,
     /// User fund
-    pub fund: usize,
-    /// List of created bids (range keys).
-    pub bids: Vec<Ulid>,
-    /// List of purchases (range keys).
-    pub purchases: Vec<Ulid>,
-    /// Password in bcrypt.
+    pub fund: u64,
+    /// User fund on hold
+    pub fund_on_hold: u64,
+    /// Password in scrypt.
     pub password: String,
 }

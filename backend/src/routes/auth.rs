@@ -7,17 +7,17 @@ use axum::{
 };
 use chrono::{Duration, TimeDelta};
 use scrypt::{
-    password_hash::{rand_core::OsRng, PasswordHash, PasswordHasher, SaltString},
+    password_hash::{rand_core::OsRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
     Scrypt,
 };
 use utoipa_axum::{router::OpenApiRouter, routes};
 
 use crate::{
     constants::{BUYER_TABLE, SELLER_TABLE},
+    errors::HandlerError,
     models::{
-        auth::{LoginChallenge, LoginChallengeAnswer, LoginPayload, RegisterPayload},
+        auth::{LoginPayload, RegisterPayload},
         user::{Buyer, Seller, UserInfo, UserType, UserWrapper},
-        ErrorResponse, GeneralResult,
     },
     state::AppState,
     utils::create_userid,
@@ -28,7 +28,6 @@ const TOKEN_EXPIRATION_DURATION: TimeDelta = Duration::hours(5);
 pub fn router() -> OpenApiRouter<Arc<AppState>> {
     OpenApiRouter::new()
         .routes(routes!(register))
-        .routes(routes!(login_challenge))
         .routes(routes!(login))
 }
 
@@ -36,19 +35,13 @@ async fn get_user(
     client: &Client,
     id: &str,
     table: &str,
-) -> GeneralResult<Option<HashMap<String, AttributeValue>>> {
+) -> Result<Option<HashMap<String, AttributeValue>>, HandlerError> {
     let resp = client
         .get_item()
         .table_name(table)
         .key("id", AttributeValue::S(id.to_string()))
         .send()
-        .await
-        .map_err(|e| {
-            ErrorResponse::with_inner_status(
-                e.raw_response().map(|r| r.status().as_u16()),
-                e.to_string(),
-            )
-        })?;
+        .await?;
 
     Ok(resp.item)
 }
@@ -58,18 +51,16 @@ async fn get_user_full(
     id: &str,
     table: &str,
     user_type: UserType,
-) -> GeneralResult<UserWrapper> {
+) -> Result<UserWrapper, HandlerError> {
     let get_user_resp = get_user(&client, &id, table).await?;
-    let user_item = get_user_resp.ok_or(ErrorResponse::not_found())?;
+    let user_item = get_user_resp.ok_or(HandlerError::not_found())?;
     match user_type {
         UserType::Buyer => {
-            let buyer: Buyer = serde_dynamo::from_item(user_item)
-                .map_err(|e| ErrorResponse::generic("Failed to deserialize user", e))?;
+            let buyer: Buyer = serde_dynamo::from_item(user_item)?;
             Ok(UserWrapper::from(buyer))
         }
         UserType::Seller => {
-            let seller: Seller = serde_dynamo::from_item(user_item)
-                .map_err(|e| ErrorResponse::generic("Failed to deserialize user", e))?;
+            let seller: Seller = serde_dynamo::from_item(user_item)?;
             Ok(UserWrapper::from(seller))
         }
         UserType::Admin => unreachable!(),
@@ -84,14 +75,14 @@ async fn get_user_full(
     request_body(description = "Register Info", content = RegisterPayload),
     responses(
         (status = OK, description = "Register Success", body = UserInfo),
-        (status = BAD_REQUEST, description = "User already exists", body = ErrorResponse),
-        (status = INTERNAL_SERVER_ERROR, description = "Handler errors", body = ErrorResponse),
+        (status = BAD_REQUEST, description = "User already exists", body = HandlerError),
+        (status = INTERNAL_SERVER_ERROR, description = "Handler errors", body = HandlerError),
     ),
 )]
 async fn register(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<RegisterPayload>,
-) -> GeneralResult<Json<UserInfo>> {
+) -> Result<Json<UserInfo>, HandlerError> {
     let client = Client::new(&state.aws_config);
     let id = create_userid(&payload.email, payload.user_type);
     let table = match payload.user_type {
@@ -103,17 +94,16 @@ async fn register(
     // 1. Check user existance.
     let get_user_resp = get_user(&client, &id, table).await?;
     if get_user_resp.is_some() {
-        return Err(ErrorResponse::new(
+        return Err(HandlerError::HandlerError(
             StatusCode::BAD_REQUEST,
-            "User already exists.",
+            "User already exists".to_string(),
         ));
     }
 
     // 2. Create password hash.
     let salt = SaltString::generate(&mut OsRng);
     let phash = Scrypt
-        .hash_password(payload.password.as_bytes(), &salt)
-        .map_err(|e| ErrorResponse::generic("Failed to hash password", e))?
+        .hash_password(payload.password.as_bytes(), &salt)?
         .to_string();
 
     // 3. Create user.
@@ -128,8 +118,7 @@ async fn register(
             last_name: payload.last_name.clone(),
             email: payload.email.clone(),
             fund: 0,
-            bids: Vec::new(),
-            purchases: Vec::new(),
+            fund_on_hold: 0,
             password: phash,
         }),
         UserType::Seller => UserWrapper::from(Seller {
@@ -140,7 +129,6 @@ async fn register(
             last_name: payload.last_name.clone(),
             email: payload.email.clone(),
             fund: 0,
-            auctions: Vec::new(),
             password: phash,
         }),
         UserType::Admin => unreachable!(),
@@ -153,88 +141,35 @@ async fn register(
         .table_name(table)
         .set_item(Some(user_item))
         .send()
-        .await
-        .map_err(|e| {
-            ErrorResponse::with_inner_status(
-                e.raw_response().map(|r| r.status().as_u16()),
-                e.to_string(),
-            )
-        })?;
+        .await?;
 
     // 5. Sign JWT token.
     let enc_key = &state.jwt.0;
     let header = &state.jwt.2;
     let claim = user.create_claim(TOKEN_EXPIRATION_DURATION);
 
-    let token = jsonwebtoken::encode(header, &claim, enc_key)
-        .map_err(|e| ErrorResponse::generic("Failed to sign JWT token", e))?;
+    let token = jsonwebtoken::encode(header, &claim, enc_key)?;
 
     Ok(Json(user.to_user_info(token)))
 }
 
-/// Initiate login challenge
-#[utoipa::path(
-    post,
-    path = "/v1/login/challenge",
-    tag = "Auth",
-    request_body(description = "Register Info", content = LoginPayload),
-    responses(
-        (status = OK, description = "Challenge Sent", body = LoginChallenge),
-        (status = NOT_FOUND, description = "User not found", body = ErrorResponse),
-        (status = INTERNAL_SERVER_ERROR, description = "Handler errors", body = ErrorResponse),
-    ),
-)]
-async fn login_challenge(
-    State(state): State<Arc<AppState>>,
-    Json(payload): Json<LoginPayload>,
-) -> GeneralResult<Json<LoginChallenge>> {
-    let client = Client::new(&state.aws_config);
-    let id = create_userid(&payload.email, payload.user_type);
-    let table = match payload.user_type {
-        UserType::Buyer => BUYER_TABLE,
-        UserType::Seller => SELLER_TABLE,
-        UserType::Admin => unreachable!(),
-    };
-
-    // 1. Check if user exists
-    let user = get_user_full(&client, &id, table, payload.user_type).await?;
-
-    // 2. Get password hash
-    let phash = PasswordHash::new(user.password())
-        .map_err(|e| ErrorResponse::generic("Failed to parse user's password hash", e))?;
-
-    // 3. Return salt as a challenge.
-    let salt = phash
-        .salt
-        .expect("Scrypt password hash should have a salt.");
-    let params = scrypt::Params::try_from(&phash)
-        .map_err(|e| ErrorResponse::generic("Failed to parse parameter", e))?;
-
-    Ok(Json(LoginChallenge {
-        salt: salt.to_string(),
-        log_n: params.log_n(),
-        r: params.r(),
-        p: params.p(),
-    }))
-}
-
-/// Login with completed challenge
+/// User Login
 #[utoipa::path(
     post,
     path = "/v1/login",
     tag = "Auth",
     request_body(description = "Register Info", content = LoginPayload),
     responses(
-        (status = OK, description = "Challenge Sent", body = LoginChallenge),
-        (status = BAD_REQUEST, description = "Wrong password or malformed password hash", body = ErrorResponse),
-        (status = NOT_FOUND, description = "User not found", body = ErrorResponse),
-        (status = INTERNAL_SERVER_ERROR, description = "Handler errors", body = ErrorResponse),
+        (status = OK, description = "Login Success", body = UserInfo),
+        (status = BAD_REQUEST, description = "Wrong password or malformed password hash", body = HandlerError),
+        (status = NOT_FOUND, description = "User not found", body = HandlerError),
+        (status = INTERNAL_SERVER_ERROR, description = "Handler errors", body = HandlerError),
     ),
 )]
 async fn login(
     State(state): State<Arc<AppState>>,
-    Json(payload): Json<LoginChallengeAnswer>,
-) -> GeneralResult<Json<UserInfo>> {
+    Json(payload): Json<LoginPayload>,
+) -> Result<Json<UserInfo>, HandlerError> {
     let client = Client::new(&state.aws_config);
     let id = create_userid(&payload.email, payload.user_type);
     let table = match payload.user_type {
@@ -247,26 +182,16 @@ async fn login(
     let user = get_user_full(&client, &id, table, payload.user_type).await?;
 
     // 2. verify hash
-    let phash = PasswordHash::new(user.password())
-        .map_err(|e| ErrorResponse::generic("Failed to parse user's password hash", e))?;
+    let phash = PasswordHash::new(user.password())?;
 
-    let supplied = PasswordHash::new(&payload.password_hash)
-        .map_err(|e| ErrorResponse::generic("Failed to parse supplied password hash", e))?;
+    Scrypt.verify_password(payload.password.as_bytes(), &phash)?;
 
-    if phash.hash != supplied.hash || (phash.hash.is_none() && supplied.hash.is_none()) {
-        return Err(ErrorResponse::new(
-            StatusCode::BAD_REQUEST,
-            "Wrong password",
-        ));
-    }
-
-    // 4. Sign JWT token
+    // 3. Sign JWT token
     let enc_key = &state.jwt.0;
     let header = &state.jwt.2;
     let claim = user.create_claim(TOKEN_EXPIRATION_DURATION);
 
-    let token = jsonwebtoken::encode(header, &claim, enc_key)
-        .map_err(|e| ErrorResponse::generic("Failed to sign JWT token", e))?;
+    let token = jsonwebtoken::encode(header, &claim, enc_key)?;
 
     Ok(Json(user.to_user_info(token)))
 }

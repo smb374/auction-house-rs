@@ -47,35 +47,37 @@ impl fmt::Display for ItemState {
 #[serde(rename_all = "camelCase")]
 pub struct Item {
     /// User id, hash key
-    seller_id: String,
+    pub seller_id: String,
     /// Ulid, range key
-    id: Ulid,
+    pub id: Ulid,
     /// Create time, in unix timestamp
-    create_at: u64,
+    pub create_at: u64,
     /// Item Name
-    name: String,
+    pub name: String,
     /// Item Description
-    description: String,
+    pub description: String,
     /// Initial Price, >1,
-    init_price: u64,
+    pub init_price: u64,
     /// Item state, see enum def.
-    state: ItemState,
+    pub state: ItemState,
     /// Length of Auction, in unix timestamp diff.
-    auction_length: u64,
+    pub auction_length: u64,
     /// List of S3 keys
-    images: Vec<String>,
+    pub images: Vec<String>,
     /// Unix timestamp, Some when item_state == "active"
-    start_date: Option<u64>,
+    pub start_date: Option<u64>,
     /// Unix timestamp, Some when item_state == "active"
-    end_date: Option<u64>,
+    pub end_date: Option<u64>,
     /// Current bid's hash & range key.
-    current_bid: Option<BidRef>,
+    pub current_bid: Option<BidRef>,
     /// List of past bids' hash & range key.
-    past_bids: Vec<BidRef>,
+    pub past_bids: Vec<BidRef>,
     /// Item sold bid
-    sold_bid: Option<BidRef>,
+    pub sold_bid: Option<BidRef>,
     /// Item sold unixtimestamp
-    sold_time: Option<u64>,
+    pub sold_time: Option<u64>,
+    /// Item sold price
+    pub sold_price: Option<u64>,
 }
 
 impl Item {
@@ -98,9 +100,9 @@ impl Item {
 #[serde(rename_all = "camelCase")]
 pub struct ItemRef {
     // User id, hash key
-    seller_id: String,
+    pub seller_id: String,
     // Ulid, range key
-    id: Ulid,
+    pub id: Ulid,
 }
 
 impl From<&Item> for ItemRef {
@@ -116,15 +118,15 @@ impl From<&Item> for ItemRef {
 #[serde(rename_all = "camelCase")]
 pub struct AddItemRequest {
     /// Item Name
-    name: String,
+    pub name: String,
     /// Item Description
-    description: String,
+    pub description: String,
     /// Initial Price, >1,
-    init_price: u64,
+    pub init_price: u64,
     /// Length of Auction, in unix timestamp diff.
-    auction_length: u64,
+    pub auction_length: u64,
     /// List of S3 keys
-    images: Vec<String>,
+    pub images: Vec<String>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize, Clone, PartialEq, Eq, ToSchema)]

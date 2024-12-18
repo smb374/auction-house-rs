@@ -1,11 +1,16 @@
 mod constants;
+mod errors;
 mod middlewares;
 mod models;
 mod routes;
 mod state;
 mod utils;
 
+#[cfg(test)]
+mod tests;
+
 use std::{
+    env,
     sync::Arc,
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -15,10 +20,10 @@ use axum::{
     middleware,
     response::{Json, Response},
     routing::get,
-    Extension,
+    Extension, Router,
 };
+use errors::HandlerError;
 use lambda_http::{run, tracing, Error};
-use models::{ErrorResponse, GeneralResult};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use state::AppState;
@@ -54,35 +59,22 @@ async fn health_check() -> (StatusCode, String) {
     }
 }
 
-async fn serve_openapi(Extension(oapi): Extension<OpenApi>) -> GeneralResult<Response<String>> {
-    let yaml = oapi.to_yaml().map_err(|e| ErrorResponse {
-        status: StatusCode::INTERNAL_SERVER_ERROR.as_u16(),
-        inner_status: None,
-        message: format!("Failed to serialize OpenAPI spec: {}", e),
-    })?;
-    Response::builder()
+async fn serve_openapi(
+    Extension(oapi): Extension<OpenApi>,
+) -> Result<Response<String>, HandlerError> {
+    let yaml = oapi.to_yaml().unwrap();
+    let res = Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, "application/yaml")
-        .body(yaml)
-        .map_err(|e| ErrorResponse {
-            status: StatusCode::INTERNAL_SERVER_ERROR.as_u16(),
-            inner_status: None,
-            message: format!("Failed to construct response: {}", e),
-        })
+        .body(yaml)?;
+    Ok(res)
 }
 
 async fn ping() -> String {
     "PONG".to_string()
 }
 
-#[tokio::main]
-async fn main() -> Result<(), Error> {
-    tracing::init_default_subscriber();
-
-    tracing::info!("API Handler Start!!!");
-
-    let state = Arc::new(AppState::new().await?);
-
+pub async fn create_service(state: Arc<AppState>) -> Result<Router, Error> {
     let plain_router = OpenApiRouter::new()
         .route("/v1/", get(root))
         .route("/v1/utc", get(get_utc))
@@ -92,7 +84,7 @@ async fn main() -> Result<(), Error> {
 
     let auth_router = OpenApiRouter::new()
         .route("/v1/ping", get(ping))
-        .merge(routes::seller::router())
+        .nest("/v1/seller", routes::seller::router())
         .layer(middleware::from_fn_with_state(
             state.clone(),
             middlewares::auth::auth_middleware,
@@ -109,6 +101,19 @@ async fn main() -> Result<(), Error> {
     let service = router
         .route("/v1/openapi", get(serve_openapi))
         .layer(Extension(oapi));
+
+    Ok(service)
+}
+
+#[tokio::main]
+async fn main() -> Result<(), Error> {
+    env::set_var("AWS_LAMBDA_LOG_LEVEL", "WARN");
+    tracing::init_default_subscriber();
+
+    tracing::info!("API Handler Start!!!");
+
+    let state = Arc::new(AppState::new().await?);
+    let service = create_service(state).await?;
 
     run(service).await
 }

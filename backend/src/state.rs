@@ -26,4 +26,22 @@ impl AppState {
             ),
         })
     }
+
+    pub async fn test() -> Result<Self, Error> {
+        let config = aws_config::defaults(BehaviorVersion::latest())
+            .endpoint_url("http://localhost:8000")
+            .region(Region::new("test"))
+            .load()
+            .await;
+        let secret = env::var("JWT_SECRET").map_err(|e| e.to_string())?;
+
+        Ok(Self {
+            aws_config: config,
+            jwt: (
+                EncodingKey::from_base64_secret(&secret)?,
+                DecodingKey::from_base64_secret(&secret)?,
+                Header::new(Algorithm::HS256),
+            ),
+        })
+    }
 }
