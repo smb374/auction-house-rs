@@ -37,6 +37,9 @@ pub fn router() -> OpenApiRouter<Arc<AppState>> {
         (status = NOT_FOUND, description = "Item not found", body = HandlerError),
         (status = INTERNAL_SERVER_ERROR, description = "Handler errors", body = HandlerError),
     ),
+    security(
+        ("http-jwt" = []),
+    ),
 )]
 async fn get_item(
     State(state): State<Arc<AppState>>,
@@ -69,6 +72,9 @@ async fn get_item(
         (status = OK, description = "Return active items", body = Vec<Item>),
         (status = NOT_FOUND, description = "Item not found", body = HandlerError),
         (status = INTERNAL_SERVER_ERROR, description = "Handler errors", body = HandlerError),
+    ),
+    security(
+        ("http-jwt" = []),
     ),
 )]
 async fn get_active_items(

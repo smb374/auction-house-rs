@@ -17,13 +17,15 @@ use crate::{
     constants::{BID_TABLE, BUYER_TABLE, ITEM_TABLE, PURCHASE_TABLE, REQUEST_TABLE, SELLER_TABLE},
     errors::HandlerError,
     models::{
-        auth::{Claim, ClaimOwned},
+        auth::ClaimOwned,
         bid::{Bid, Purchase},
-        item::{AddItemRequest, Item, ItemRef, ItemState, ItemUnfreezeRequest, UpdateItemRequest},
+        item::{AddItemRequest, Item, ItemRef, ItemState, UnfreezeItemRequest, UpdateItemRequest},
         user::UserType,
     },
     state::AppState,
 };
+
+use super::check_user;
 
 pub fn router() -> OpenApiRouter<Arc<AppState>> {
     OpenApiRouter::new()
@@ -34,16 +36,6 @@ pub fn router() -> OpenApiRouter<Arc<AppState>> {
         .routes(routes!(seller_fulfill_item))
         .routes(routes!(seller_archive_item))
         .routes(routes!(seller_request_unfreeze_item))
-}
-
-fn check_user(claim: Claim) -> Result<(), HandlerError> {
-    if claim.user_type != UserType::Seller {
-        return Err(HandlerError::HandlerError(
-            StatusCode::FORBIDDEN,
-            "Only seller can use this".to_string(),
-        ));
-    }
-    Ok(())
 }
 
 // Review Items
@@ -57,12 +49,15 @@ fn check_user(claim: Claim) -> Result<(), HandlerError> {
         (status = FORBIDDEN, description = "Not a seller", body = HandlerError),
         (status = INTERNAL_SERVER_ERROR, description = "Handler errors", body = HandlerError),
     ),
+    security(
+        ("http-jwt" = []),
+    ),
 )]
 async fn seller_get_owned_items(
     Extension(claim): Extension<ClaimOwned>,
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<Vec<Item>>, HandlerError> {
-    check_user(claim.as_claim())?;
+    check_user(claim.as_claim(), UserType::Seller)?;
 
     let client = Client::new(&state.aws_config);
 
@@ -91,13 +86,16 @@ async fn seller_get_owned_items(
         (status = FORBIDDEN, description = "Not a seller", body = HandlerError),
         (status = INTERNAL_SERVER_ERROR, description = "Handler errors", body = HandlerError),
     ),
+    security(
+        ("http-jwt" = []),
+    ),
 )]
 async fn seller_add_item(
     Extension(claim): Extension<ClaimOwned>,
     State(state): State<Arc<AppState>>,
     Json(payload): Json<AddItemRequest>,
 ) -> Result<Json<ItemRef>, HandlerError> {
-    check_user(claim.as_claim())?;
+    check_user(claim.as_claim(), UserType::Seller)?;
 
     let client = Client::new(&state.aws_config);
 
@@ -129,13 +127,16 @@ async fn seller_add_item(
         (status = NOT_FOUND, description = "Item not found", body = HandlerError),
         (status = INTERNAL_SERVER_ERROR, description = "Handler errors", body = HandlerError),
     ),
+    security(
+        ("http-jwt" = []),
+    ),
 )]
 async fn seller_delete_item(
     Extension(claim): Extension<ClaimOwned>,
     State(state): State<Arc<AppState>>,
     Path(item_id): Path<Ulid>,
 ) -> Result<(), HandlerError> {
-    check_user(claim.as_claim())?;
+    check_user(claim.as_claim(), UserType::Seller)?;
 
     let client = Client::new(&state.aws_config);
 
@@ -172,6 +173,9 @@ async fn seller_delete_item(
         (status = FORBIDDEN, description = "Not a seller", body = HandlerError),
         (status = INTERNAL_SERVER_ERROR, description = "Handler errors", body = HandlerError),
     ),
+    security(
+        ("http-jwt" = []),
+    ),
 )]
 async fn seller_update_item(
     Extension(claim): Extension<ClaimOwned>,
@@ -179,7 +183,7 @@ async fn seller_update_item(
     Path(item_id): Path<Ulid>,
     Json(payload): Json<UpdateItemRequest>,
 ) -> Result<(), HandlerError> {
-    check_user(claim.as_claim())?;
+    check_user(claim.as_claim(), UserType::Seller)?;
 
     if payload == UpdateItemRequest::default() {
         return Err(HandlerError::HandlerError(
@@ -267,13 +271,16 @@ struct PublishSubItem {
         (status = NOT_FOUND, description = "Item not found", body = HandlerError),
         (status = INTERNAL_SERVER_ERROR, description = "Handler errors", body = HandlerError),
     ),
+    security(
+        ("http-jwt" = []),
+    ),
 )]
 async fn seller_publish_item(
     Extension(claim): Extension<ClaimOwned>,
     State(state): State<Arc<AppState>>,
     Path(item_id): Path<Ulid>,
 ) -> Result<(), HandlerError> {
-    check_user(claim.as_claim())?;
+    check_user(claim.as_claim(), UserType::Seller)?;
 
     let client = Client::new(&state.aws_config);
 
@@ -326,13 +333,16 @@ async fn seller_publish_item(
         (status = NOT_FOUND, description = "Item not found", body = HandlerError),
         (status = INTERNAL_SERVER_ERROR, description = "Handler errors", body = HandlerError),
     ),
+    security(
+        ("http-jwt" = []),
+    ),
 )]
 async fn seller_unpublish_item(
     Extension(claim): Extension<ClaimOwned>,
     State(state): State<Arc<AppState>>,
     Path(item_id): Path<Ulid>,
 ) -> Result<(), HandlerError> {
-    check_user(claim.as_claim())?;
+    check_user(claim.as_claim(), UserType::Seller)?;
 
     let client = Client::new(&state.aws_config);
 
@@ -367,13 +377,16 @@ async fn seller_unpublish_item(
         (status = NOT_FOUND, description = "Item not found", body = HandlerError),
         (status = INTERNAL_SERVER_ERROR, description = "Handler errors", body = HandlerError),
     ),
+    security(
+        ("http-jwt" = []),
+    ),
 )]
 async fn seller_fulfill_item(
     Extension(claim): Extension<ClaimOwned>,
     State(state): State<Arc<AppState>>,
     Path(item_id): Path<Ulid>,
 ) -> Result<(), HandlerError> {
-    check_user(claim.as_claim())?;
+    check_user(claim.as_claim(), UserType::Seller)?;
 
     let client = Client::new(&state.aws_config);
 
@@ -504,13 +517,16 @@ async fn seller_fulfill_item(
         (status = NOT_FOUND, description = "Item not found", body = HandlerError),
         (status = INTERNAL_SERVER_ERROR, description = "Handler errors", body = HandlerError),
     ),
+    security(
+        ("http-jwt" = []),
+    ),
 )]
 async fn seller_archive_item(
     Extension(claim): Extension<ClaimOwned>,
     State(state): State<Arc<AppState>>,
     Path(item_id): Path<Ulid>,
 ) -> Result<(), HandlerError> {
-    check_user(claim.as_claim())?;
+    check_user(claim.as_claim(), UserType::Seller)?;
 
     let client = Client::new(&state.aws_config);
 
@@ -544,13 +560,16 @@ async fn seller_archive_item(
         (status = NOT_FOUND, description = "Item not found", body = HandlerError),
         (status = INTERNAL_SERVER_ERROR, description = "Handler errors", body = HandlerError),
     ),
+    security(
+        ("http-jwt" = []),
+    ),
 )]
 async fn seller_request_unfreeze_item(
     Extension(claim): Extension<ClaimOwned>,
     State(state): State<Arc<AppState>>,
     Path(item_id): Path<Ulid>,
 ) -> Result<(), HandlerError> {
-    check_user(claim.as_claim())?;
+    check_user(claim.as_claim(), UserType::Seller)?;
 
     let client = Client::new(&state.aws_config);
 
@@ -571,7 +590,7 @@ async fn seller_request_unfreeze_item(
         ));
     }
 
-    let payload = ItemUnfreezeRequest {
+    let payload = UnfreezeItemRequest {
         seller_id: claim.id.clone(),
         id: Ulid::new(),
         item_id,

@@ -28,7 +28,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use state::AppState;
 use tower_http::compression::CompressionLayer;
-use utoipa::openapi::OpenApi;
+use utoipa::openapi::{
+    security::{HttpAuthScheme, HttpBuilder, SecurityScheme},
+    OpenApi,
+};
 use utoipa_axum::router::OpenApiRouter;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Default)]
@@ -86,18 +89,31 @@ pub async fn create_service(state: Arc<AppState>) -> Result<Router, Error> {
         .route("/v1/ping", get(ping))
         .nest("/v1/item", routes::item::router())
         .nest("/v1/seller", routes::seller::router())
+        .nest("/v1/buyer", routes::buyer::route())
         .layer(middleware::from_fn_with_state(
             state.clone(),
             middlewares::auth::auth_middleware,
         ))
         .with_state(state.clone());
 
-    let (router, oapi) = OpenApiRouter::new()
+    let (router, mut oapi) = OpenApiRouter::new()
         .merge(plain_router)
         .merge(auth_router)
         .layer(CompressionLayer::new().zstd(true))
         .layer(middleware::from_fn(middlewares::trace_client))
         .split_for_parts();
+
+    if let Some(schema) = oapi.components.as_mut() {
+        schema.add_security_scheme(
+            "http-jwt",
+            SecurityScheme::Http(
+                HttpBuilder::new()
+                    .scheme(HttpAuthScheme::Bearer)
+                    .bearer_format("JWT")
+                    .build(),
+            ),
+        );
+    }
 
     let service = router
         .route("/v1/openapi", get(serve_openapi))

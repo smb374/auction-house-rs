@@ -148,7 +148,7 @@ pub struct UpdateItemRequest {
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, ToSchema)]
 #[serde(rename_all = "camelCase")]
-pub struct ItemUnfreezeRequest {
+pub struct UnfreezeItemRequest {
     /// User id, hash key
     pub seller_id: String,
     /// Ulid, range key
