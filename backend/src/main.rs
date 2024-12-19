@@ -84,6 +84,7 @@ pub async fn create_service(state: Arc<AppState>) -> Result<Router, Error> {
 
     let auth_router = OpenApiRouter::new()
         .route("/v1/ping", get(ping))
+        .nest("/v1/item", routes::item::router())
         .nest("/v1/seller", routes::seller::router())
         .layer(middleware::from_fn_with_state(
             state.clone(),

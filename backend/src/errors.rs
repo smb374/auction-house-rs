@@ -2,7 +2,7 @@ use aws_sdk_dynamodb::{
     error::SdkError as DynamoSdkError,
     operation::{
         delete_item::DeleteItemError, get_item::GetItemError, put_item::PutItemError,
-        query::QueryError, transact_write_items::TransactWriteItemsError,
+        query::QueryError, scan::ScanError, transact_write_items::TransactWriteItemsError,
         update_item::UpdateItemError,
     },
 };
@@ -39,6 +39,8 @@ pub enum HandlerError {
     DynamoDBPutError(#[from] DynamoSdkError<PutItemError>),
     #[error("DynamoDB Error: Query: {0}")]
     DynamoDBQueryError(#[from] DynamoSdkError<QueryError>),
+    #[error("DynamoDB Error: Scan: {0}")]
+    DynamoDBScanError(#[from] DynamoSdkError<ScanError>),
     #[error("DynamoDB Error: DeleteItem: {0}")]
     DynamoDBDeleteError(#[from] DynamoSdkError<DeleteItemError>),
     #[error("DynamoDB Error: UpdateItem: {0}")]

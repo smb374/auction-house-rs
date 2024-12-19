@@ -14,12 +14,12 @@ use ulid::Ulid;
 use utoipa_axum::{router::OpenApiRouter, routes};
 
 use crate::{
-    constants::{BID_TABLE, BUYER_TABLE, ITEM_TABLE, PURCHASE_TABLE, SELLER_TABLE},
+    constants::{BID_TABLE, BUYER_TABLE, ITEM_TABLE, PURCHASE_TABLE, REQUEST_TABLE, SELLER_TABLE},
     errors::HandlerError,
     models::{
         auth::{Claim, ClaimOwned},
         bid::{Bid, Purchase},
-        item::{AddItemRequest, Item, ItemRef, ItemState, UpdateItemRequest},
+        item::{AddItemRequest, Item, ItemRef, ItemState, ItemUnfreezeRequest, UpdateItemRequest},
         user::UserType,
     },
     state::AppState,
@@ -28,15 +28,12 @@ use crate::{
 pub fn router() -> OpenApiRouter<Arc<AppState>> {
     OpenApiRouter::new()
         .routes(routes!(seller_get_owned_items, seller_add_item))
-        .routes(routes!(
-            seller_get_item_by_id,
-            seller_delete_item_by_id,
-            seller_update_item_by_id
-        ))
-        .routes(routes!(seller_publish_item_by_id))
-        .routes(routes!(seller_unpublish_item_by_id))
-        .routes(routes!(seller_fulfill_item_by_id))
-        .routes(routes!(seller_archive_item_by_id))
+        .routes(routes!(seller_delete_item, seller_update_item))
+        .routes(routes!(seller_publish_item))
+        .routes(routes!(seller_unpublish_item))
+        .routes(routes!(seller_fulfill_item))
+        .routes(routes!(seller_archive_item))
+        .routes(routes!(seller_request_unfreeze_item))
 }
 
 fn check_user(claim: Claim) -> Result<(), HandlerError> {
@@ -106,56 +103,15 @@ async fn seller_add_item(
 
     let new_item = Item::new_from_request(claim.id.clone(), payload);
     let iref = ItemRef::from(&new_item);
-    let item = to_item(new_item)?;
 
     client
         .put_item()
         .table_name(ITEM_TABLE)
-        .set_item(Some(item))
+        .set_item(Some(to_item(new_item)?))
         .send()
         .await?;
 
     Ok(Json(iref))
-}
-
-// Get Item
-/// Get seller's item by itemId.
-#[utoipa::path(
-    get,
-    path = "/item/{itemId}",
-    tag = "Seller",
-    params(
-        ("itemId" = String, Path, description = "Item ID to get", format = Ulid),
-    ),
-    responses(
-        (status = OK, description = "Returns specified item", body = Item),
-        (status = FORBIDDEN, description = "Not a seller", body = HandlerError),
-        (status = NOT_FOUND, description = "Item not found", body = HandlerError),
-        (status = INTERNAL_SERVER_ERROR, description = "Handler errors", body = HandlerError),
-    ),
-)]
-async fn seller_get_item_by_id(
-    Extension(claim): Extension<ClaimOwned>,
-    State(state): State<Arc<AppState>>,
-    Path(item_id): Path<Ulid>,
-) -> Result<Json<Item>, HandlerError> {
-    check_user(claim.as_claim())?;
-
-    let client = Client::new(&state.aws_config);
-
-    let get_item_resp = client
-        .get_item()
-        .table_name(ITEM_TABLE)
-        .key("sellerId", AttributeValue::S(claim.id.clone()))
-        .key("id", AttributeValue::S(item_id.to_string()))
-        .send()
-        .await?;
-
-    let item = get_item_resp.item.ok_or(HandlerError::not_found())?;
-
-    let result = from_item(item)?;
-
-    Ok(Json(result))
 }
 
 // Remove inactive item
@@ -174,7 +130,7 @@ async fn seller_get_item_by_id(
         (status = INTERNAL_SERVER_ERROR, description = "Handler errors", body = HandlerError),
     ),
 )]
-async fn seller_delete_item_by_id(
+async fn seller_delete_item(
     Extension(claim): Extension<ClaimOwned>,
     State(state): State<Arc<AppState>>,
     Path(item_id): Path<Ulid>,
@@ -217,7 +173,7 @@ async fn seller_delete_item_by_id(
         (status = INTERNAL_SERVER_ERROR, description = "Handler errors", body = HandlerError),
     ),
 )]
-async fn seller_update_item_by_id(
+async fn seller_update_item(
     Extension(claim): Extension<ClaimOwned>,
     State(state): State<Arc<AppState>>,
     Path(item_id): Path<Ulid>,
@@ -312,7 +268,7 @@ struct PublishSubItem {
         (status = INTERNAL_SERVER_ERROR, description = "Handler errors", body = HandlerError),
     ),
 )]
-async fn seller_publish_item_by_id(
+async fn seller_publish_item(
     Extension(claim): Extension<ClaimOwned>,
     State(state): State<Arc<AppState>>,
     Path(item_id): Path<Ulid>,
@@ -371,7 +327,7 @@ async fn seller_publish_item_by_id(
         (status = INTERNAL_SERVER_ERROR, description = "Handler errors", body = HandlerError),
     ),
 )]
-async fn seller_unpublish_item_by_id(
+async fn seller_unpublish_item(
     Extension(claim): Extension<ClaimOwned>,
     State(state): State<Arc<AppState>>,
     Path(item_id): Path<Ulid>,
@@ -412,7 +368,7 @@ async fn seller_unpublish_item_by_id(
         (status = INTERNAL_SERVER_ERROR, description = "Handler errors", body = HandlerError),
     ),
 )]
-async fn seller_fulfill_item_by_id(
+async fn seller_fulfill_item(
     Extension(claim): Extension<ClaimOwned>,
     State(state): State<Arc<AppState>>,
     Path(item_id): Path<Ulid>,
@@ -549,7 +505,7 @@ async fn seller_fulfill_item_by_id(
         (status = INTERNAL_SERVER_ERROR, description = "Handler errors", body = HandlerError),
     ),
 )]
-async fn seller_archive_item_by_id(
+async fn seller_archive_item(
     Extension(claim): Extension<ClaimOwned>,
     State(state): State<Arc<AppState>>,
     Path(item_id): Path<Ulid>,
@@ -567,6 +523,64 @@ async fn seller_archive_item_by_id(
         .expression_attribute_values(":archived", ItemState::Active.into())
         .expression_attribute_values(":inactive", ItemState::InActive.into())
         .expression_attribute_values(":failed", ItemState::Failed.into())
+        .send()
+        .await?;
+
+    Ok(())
+}
+
+/// Request unfreeze item by itemId.
+#[utoipa::path(
+    post,
+    path = "/item/{itemId}/request-unfreeze",
+    tag = "Seller",
+    params(
+        ("itemId" = String, Path, description = "Item ID to request", format = Ulid),
+    ),
+    responses(
+        (status = OK, description = "Request success"),
+        (status = BAD_REQUEST, description = "Item is not frozen", body = HandlerError),
+        (status = FORBIDDEN, description = "Not a seller", body = HandlerError),
+        (status = NOT_FOUND, description = "Item not found", body = HandlerError),
+        (status = INTERNAL_SERVER_ERROR, description = "Handler errors", body = HandlerError),
+    ),
+)]
+async fn seller_request_unfreeze_item(
+    Extension(claim): Extension<ClaimOwned>,
+    State(state): State<Arc<AppState>>,
+    Path(item_id): Path<Ulid>,
+) -> Result<(), HandlerError> {
+    check_user(claim.as_claim())?;
+
+    let client = Client::new(&state.aws_config);
+
+    let get_item_resp = client
+        .get_item()
+        .table_name(ITEM_TABLE)
+        .key("sellerId", AttributeValue::S(claim.id.clone()))
+        .key("id", AttributeValue::S(item_id.to_string()))
+        .send()
+        .await?;
+
+    let item: Item = from_item(get_item_resp.item.ok_or(HandlerError::not_found())?)?;
+
+    if !item.is_frozen {
+        return Err(HandlerError::HandlerError(
+            StatusCode::BAD_REQUEST,
+            "Item is not forzen".to_string(),
+        ));
+    }
+
+    let payload = ItemUnfreezeRequest {
+        seller_id: claim.id.clone(),
+        id: Ulid::new(),
+        item_id,
+    };
+
+    client
+        .put_item()
+        .table_name(REQUEST_TABLE)
+        .set_item(Some(to_item(payload)?))
         .send()
         .await?;
 

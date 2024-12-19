@@ -64,6 +64,8 @@ pub struct Item {
     pub auction_length: u64,
     /// List of S3 keys
     pub images: Vec<String>,
+    /// Is Frozen
+    pub is_frozen: bool,
     /// Unix timestamp, Some when item_state == "active"
     pub start_date: Option<u64>,
     /// Unix timestamp, Some when item_state == "active"
@@ -142,4 +144,15 @@ pub struct UpdateItemRequest {
     pub auction_length: Option<u64>,
     /// List of S3 keys
     pub images: Option<Vec<String>>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ItemUnfreezeRequest {
+    /// User id, hash key
+    pub seller_id: String,
+    /// Ulid, range key
+    pub id: Ulid,
+    /// Item id, for accessing item.
+    pub item_id: Ulid,
 }
