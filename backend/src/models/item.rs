@@ -153,6 +153,17 @@ pub struct UnfreezeItemRequest {
     pub seller_id: String,
     /// Ulid, range key
     pub id: Ulid,
-    /// Item id, for accessing item.
+    /// Item id, for accessing item
     pub item_id: Ulid,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct CheckItemExiprationResponse {
+    /// User id, hash key
+    pub seller_id: String,
+    /// Ulid, range key
+    pub id: Ulid,
+    /// Item is expired or not
+    pub is_expired: bool,
 }

@@ -30,6 +30,15 @@ pub struct BidRef {
     pub id: Ulid,
 }
 
+impl From<&Bid> for BidRef {
+    fn from(value: &Bid) -> Self {
+        Self {
+            buyer_id: value.buyer_id.clone(),
+            id: value.id,
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct Purchase {
@@ -45,4 +54,15 @@ pub struct Purchase {
     pub price: u64,
     /// Item sold time
     pub sold_time: u64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct BidItemRequest {
+    /// Seller ID of the item
+    pub seller_id: String,
+    /// ID of the item
+    pub id: Ulid,
+    /// Bid amount
+    pub amount: u64,
 }

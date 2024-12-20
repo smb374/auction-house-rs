@@ -8,6 +8,7 @@ use utoipa::ToSchema;
 
 pub mod auth;
 pub mod bid;
+pub mod buyer;
 pub mod item;
 pub mod user;
 
@@ -25,11 +26,4 @@ impl IntoResponse for PlainSuccessResponse {
 
         (code, body).into_response()
     }
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct AddFundRequest {
-    /// Amount of funds to add.
-    pub amount: u64,
 }
