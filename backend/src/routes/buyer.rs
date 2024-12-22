@@ -5,16 +5,16 @@ use aws_sdk_dynamodb::{
     Client,
 };
 use axum::{extract::State, http::StatusCode, Extension, Json};
-use serde_dynamo::{from_attribute_value, from_item, to_attribute_value, to_item};
+use serde_dynamo::{from_attribute_value, from_item, from_items, to_attribute_value, to_item};
 use ulid::Ulid;
 use utoipa_axum::{router::OpenApiRouter, routes};
 
 use crate::{
-    constants::{BID_TABLE, BUYER_TABLE, ITEM_TABLE},
+    constants::{BID_TABLE, BUYER_TABLE, ITEM_TABLE, PURCHASE_TABLE},
     errors::HandlerError,
     models::{
         auth::ClaimOwned,
-        bid::{Bid, BidItemRequest, BidRef},
+        bid::{Bid, BidItemRequest, BidRef, Purchase},
         buyer::{AddFundRequest, AddFundResponse},
         item::{ItemRef, ItemState},
         user::UserType,
@@ -28,6 +28,8 @@ pub fn route() -> OpenApiRouter<Arc<AppState>> {
     OpenApiRouter::new()
         .routes(routes!(buyer_add_fund))
         .routes(routes!(buyer_place_bid))
+        .routes(routes!(buyer_active_bids))
+        .routes(routes!(buyer_purchases))
 }
 
 /// Add fund to buyer
@@ -201,4 +203,80 @@ async fn buyer_place_bid(
     .await?;
 
     Ok(Json(bid_ref))
+}
+
+/// Get active bids
+#[utoipa::path(
+    get,
+    path = "/active-bids",
+    tag = "Buyer",
+    responses(
+        (status = OK, description = "Fetch bids success", body = Vec<Bid>),
+        (status = FORBIDDEN, description = "Not a buyer", body = HandlerError),
+        (status = INTERNAL_SERVER_ERROR, description = "Handler errors", body = HandlerError),
+    ),
+    security(
+        ("http-jwt" = []),
+    ),
+)]
+async fn buyer_active_bids(
+    Extension(claim): Extension<ClaimOwned>,
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<Vec<Bid>>, HandlerError> {
+    check_user(claim.as_claim(), UserType::Buyer)?;
+
+    let client = Client::new(&state.aws_config);
+
+    let query_bids_resp = client
+        .query()
+        .table_name(BID_TABLE)
+        .key_condition_expression("buyer_id = :id")
+        .filter_expression("isActive = :true")
+        .expression_attribute_values(":id", AttributeValue::S(claim.id.clone()))
+        .expression_attribute_values(":true", AttributeValue::Bool(true))
+        .send()
+        .await?;
+
+    let data = query_bids_resp.items();
+
+    let result = from_items(data.to_vec())?;
+
+    Ok(Json(result))
+}
+
+/// Get purchases
+#[utoipa::path(
+    get,
+    path = "/purchases",
+    tag = "Buyer",
+    responses(
+        (status = OK, description = "Fetch purchases success", body = Vec<Purchase>),
+        (status = FORBIDDEN, description = "Not a buyer", body = HandlerError),
+        (status = INTERNAL_SERVER_ERROR, description = "Handler errors", body = HandlerError),
+    ),
+    security(
+        ("http-jwt" = []),
+    ),
+)]
+async fn buyer_purchases(
+    Extension(claim): Extension<ClaimOwned>,
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<Vec<Purchase>>, HandlerError> {
+    check_user(claim.as_claim(), UserType::Buyer)?;
+
+    let client = Client::new(&state.aws_config);
+
+    let query_bids_resp = client
+        .query()
+        .table_name(PURCHASE_TABLE)
+        .key_condition_expression("buyer_id = :id")
+        .expression_attribute_values(":id", AttributeValue::S(claim.id.clone()))
+        .send()
+        .await?;
+
+    let data = query_bids_resp.items();
+
+    let result = from_items(data.to_vec())?;
+
+    Ok(Json(result))
 }
